@@ -11,6 +11,193 @@ from modules.logger import logger
 load_dotenv()
 USER_ID = os.getenv("USER_ID")
 
+class TeaCeremonyJoinView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=120)
+        self.participants = []
+        self.main_message = None
+
+    @discord.ui.button(label="Присоединиться", style=discord.ButtonStyle.blurple, emoji="🫖")
+    async def join_ceremony(self, interaction: discord.Interaction, button: discord.ui.Button):
+        try:
+            if interaction.user not in self.participants:
+                self.participants.append(interaction.user)
+                
+                # Обновляем список участников
+                participants_list = "\n".join([f"🌸 {p.mention}" for p in self.participants])
+                embed = interaction.message.embeds[0]
+                embed.description = f"**Участники церемонии:**\n{participants_list}\n\n_Присоединяйтесь, нажав кнопку ниже_"
+                
+                await interaction.response.edit_message(embed=embed)
+                
+                # При первом участнике заменяем вид на главное меню с выбором ингредиентов
+                if len(self.participants) == 1:
+                    main_view = TeaCeremonyMainView(self.participants)
+                    await interaction.message.edit(view=main_view)
+            else:
+                await interaction.response.send_message(
+                    "❌ Вы уже участвуете в церемонии!",
+                    ephemeral=True
+                )
+        except Exception as e:
+            await self.handle_error(interaction, e)
+
+    async def handle_error(self, interaction, error):
+        await interaction.response.send_message(
+            "🌀 Произошла ошибка при присоединении!",
+            ephemeral=True
+        )
+        print(f"Ошибка в TeaCeremonyJoinView: {error}")
+
+
+class TeaCeremonyMainView(discord.ui.View):
+    def __init__(self, participants):
+        super().__init__(timeout=300)
+        self.participants = participants
+        self.tea_type = None
+        self.water_type = None
+        self.ritual = None
+        self.current_step = 1
+
+    async def update_progress(self, interaction: discord.Interaction, description: str):
+        try:
+            embed = interaction.message.embeds[0]
+            participants_list = "\n".join([f"🌸 {p.mention}" for p in self.participants])
+            
+            progress = (
+                "```diff\n"
+                f"+ {'★' * self.current_step}{'☆' * (3 - self.current_step)} Этап {self.current_step}/3\n"
+                "```"
+            )
+            
+            embed.description = (
+                f"**Участники:**\n{participants_list}\n\n"
+                f"{progress}\n"
+                f"{description}"
+            )
+            
+            await interaction.response.edit_message(embed=embed)
+            self.current_step += 1
+        except Exception as e:
+            await self.handle_error(interaction, e)
+
+    async def check_participant(self, interaction):
+        if interaction.user not in self.participants:
+            await interaction.response.send_message(
+                "⚠️ Сначала присоединитесь к церемонии!",
+                ephemeral=True
+            )
+            return False
+        return True
+
+    @discord.ui.select(
+        placeholder="🍵 Выберите тип чая",
+        options=[
+            discord.SelectOption(label="Лунный Маття", value="moon", emoji="🌕"),
+            discord.SelectOption(label="Сакура-Нектар", value="sakura", emoji="🌸"),
+            discord.SelectOption(label="Ёкайский Эликсир", value="yokai", emoji="👺")
+        ]
+    )
+    async def select_tea(self, interaction: discord.Interaction, select: discord.ui.Select):
+        if await self.check_participant(interaction):
+            if self.tea_type is not None:
+                await interaction.response.send_message(
+                    "❌ Вы уже выбрали чай! Изменить выбор нельзя.", ephemeral=True
+                )
+                return
+            selected_value = select.values[0]
+            selected_option = next(opt for opt in select.options if opt.value == selected_value)
+            self.tea_type = selected_value
+            await self.update_progress(
+                interaction,
+                f"**Выбран чай:** {selected_option.label}\nСледующий шаг: выбор воды"
+            )
+
+    @discord.ui.select(
+        placeholder="💧 Выберите источник воды",
+        options=[
+            discord.SelectOption(label="Горный Родник", value="spring", emoji="🌊"),
+            discord.SelectOption(label="Утренний Туман", value="mist", emoji="☁️"),
+            discord.SelectOption(label="Снежная Вершина", value="snow", emoji="❄️")
+        ]
+    )
+    async def select_water(self, interaction: discord.Interaction, select: discord.ui.Select):
+        if await self.check_participant(interaction):
+            if self.water_type is not None:
+                await interaction.response.send_message(
+                    "❌ Вы уже выбрали источник воды! Изменить выбор нельзя.", ephemeral=True
+                )
+                return
+            selected_value = select.values[0]
+            selected_option = next(opt for opt in select.options if opt.value == selected_value)
+            self.water_type = selected_value
+            await self.update_progress(
+                interaction,
+                f"**Выбрана вода:** {selected_option.label}\nПоследний шаг: выбор ритуала"
+            )
+
+    @discord.ui.select(
+        placeholder="🎐 Выберите ритуал",
+        options=[
+            discord.SelectOption(label="Танец Веера", value="fan", emoji="🪭"),
+            discord.SelectOption(label="Песня Луны", value="song", emoji="🎶"),
+            discord.SelectOption(label="Очищение Дымом", value="smoke", emoji="🕯️")
+        ]
+    )
+    async def select_ritual(self, interaction: discord.Interaction, select: discord.ui.Select):
+        if await self.check_participant(interaction):
+            if self.ritual is not None:
+                await interaction.response.send_message(
+                    "❌ Вы уже выбрали ритуал! Изменить выбор нельзя.", ephemeral=True
+                )
+                return
+            selected_value = select.values[0]
+            selected_option = next(opt for opt in select.options if opt.value == selected_value)
+            self.ritual = selected_value
+            await self.update_progress(interaction, "🌀 Начинаем ритуал...")
+            await self.finalize_ceremony(interaction)
+
+    async def finalize_ceremony(self, interaction: discord.Interaction):
+        try:
+            await asyncio.sleep(2)
+            
+            result_embed = discord.Embed(
+                title="🍵 Чайная Церемония Завершена",
+                color=0xe5d4c0
+            )
+            
+            combinations = {
+                ("moon", "spring", "fan"): 
+                    "Лунный свет струится по чаше... 🌕\n«Как вода отражает луну - так ум отражает истину»",
+                ("sakura", "mist", "song"): 
+                    "Лепестки танцуют в такт ветру... 🌸\n«Цветок сакуры учит нас ценить мимолетность бытия»",
+                ("yokai", "snow", "smoke"): 
+                    "Тени духов кружатся у очага... 👺\n«Даже в самых тёмных чащах живёт красота»",
+                ("moon", "snow", "song"): 
+                    "Хрустальные ноты замерзшего света... ❄️\n«Зимняя тишина рождает самые чистые мысли»",
+                ("sakura", "spring", "smoke"): 
+                    "Дымка над родником цветущей вишни... 🌊\n«Истина рождается в единстве противоположностей»",
+                ("yokai", "mist", "fan"): 
+                    "Веер рассеивает туманные видения... 🪭\n«За каждой иллюзией скрывается урок»"
+            }
+            
+            result_embed.description = combinations.get(
+                (self.tea_type, self.water_type, self.ritual),
+                "Кёму благословляет всех участников! 🍃\nГармония достигнута"
+            )
+            result_embed.set_image(url="https://i.pinimg.com/originals/28/72/c8/2872c8bad38ec1a46bbbcf40da544c71.gif")
+            
+            await interaction.message.edit(embed=result_embed, view=None)
+        except Exception as e:
+            await self.handle_error(interaction, e)
+
+    async def handle_error(self, interaction, error):
+        await interaction.response.send_message(
+            "🌀 Ритуал прерван невидимыми силами!",
+            ephemeral=True
+        )
+        print(f"Ошибка в TeaCeremonyMainView: {error}")
+
 class BioEmbed(discord.Embed):
     pass
 
@@ -187,6 +374,29 @@ class KemuCommands(commands.Cog):
         self.bot = bot
         self.drunk_manager = bot.drunk_manager
         self.inventory_manager = bot.inventory_manager
+        
+    @app_commands.command(name="чайная_церемония", description="Начать ритуальное чаепитие в стиле тануки")
+    async def start_ceremony(self, interaction: discord.Interaction):
+        try:
+            initial_embed = discord.Embed(
+                title="˗ˏˋ 🎐 Чайная Церемония Тануки ˎˊ˗",
+                description="**Участники:**\n_Пока никого..._\n\n"
+                            "𓍊  Нажмите 🫖 чтобы присоединиться 𓍊",
+                color=0xe5d4c0
+            )
+            initial_embed.set_thumbnail(url="https://i.pinimg.com/originals/9a/30/c6/9a30c6c6911f7c473d1de00271983ebf.gif")
+            
+            await interaction.response.send_message(
+                embed=initial_embed,
+                view=TeaCeremonyJoinView()
+            )
+        except Exception as e:
+            await interaction.response.send_message(
+                "🌀 Не удалось начать церемонию!",
+                ephemeral=True
+            )
+            print(f"Ошибка в команде чайной церемонии: {e}")
+
 
     @app_commands.command(name="биография", description="Показать биографию Кёму 🎴")
     async def biography(self, interaction: discord.Interaction):
@@ -216,6 +426,7 @@ class KemuCommands(commands.Cog):
         
         await interaction.response.send_message(embed=embed, view=view)
         logger.info(f"📜 {interaction.user} запросил биографию")
+
 
     @app_commands.command(name="выпить", description="Выпить ритуальное саке 🍶")
     async def drink(self, interaction: discord.Interaction):
@@ -256,6 +467,7 @@ class KemuCommands(commands.Cog):
                 ephemeral=True
             )
             logger.error(f"Ошибка в команде /выпить: {e}")
+
 
     @app_commands.command(name="инвентарь", description="Показать коллекцию артефактов 🎎")
     async def inventory(self, interaction: discord.Interaction):
@@ -298,6 +510,7 @@ class KemuCommands(commands.Cog):
         ).set_image(url="https://i.pinimg.com/originals/52/9f/9c/529f9ce3e4bdd0fd5eccc2ee36134c87.gif")
         
         await interaction.response.send_message(embed=embed, view=view)
+        
 
     @app_commands.command(name="помощь", description="Открыть руководство мудрости 📜")
     async def help(self, interaction: discord.Interaction):
@@ -313,9 +526,14 @@ class KemuCommands(commands.Cog):
             name="🎌 Боевые Искусства",
             value="• `/бои_тануки` - Вызов на поединок",
             inline=False
+        ).add_field(
+            name="🍵 Чайные Практики",
+            value="• `/чайная_церемония` - Ритуальное чаепитие",
+            inline=False
         ).set_image(url="https://i.pinimg.com/originals/e8/2d/89/e82d895dcb38cf4fcee7d5dad950183e.gif")
         
         await interaction.response.send_message(embed=embed)
+        
 
 async def setup_commands(bot: commands.Bot):
     await bot.add_cog(KemuCommands(bot))

@@ -9,7 +9,7 @@ class AdminCommands(commands.Cog):
 
     @app_commands.command(
         name="tanuki_curse", 
-        description="🔮 Наложить проклятие тануки на участника"
+        description="Наложить проклятие тануки на участника 🔮"
     )
     @app_commands.default_permissions(administrator=True)  # Видна только админам
     @app_commands.describe(

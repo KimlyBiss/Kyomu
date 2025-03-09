@@ -78,7 +78,6 @@ class KemuBot(commands.Bot):
                 os.makedirs("data")
                 logger.warning("📂 Создана папка data")
 
-            # Добавляем загрузку админ-команд
             await self.load_extension("modules.admin")
             
             await asyncio.wait_for(setup_commands(self), timeout=10)
